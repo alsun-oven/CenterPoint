@@ -188,10 +188,15 @@ class LoadPointCloudAnnotations(object):
                 "tokens": info["gt_boxes_token"],
                 "velocities": info["gt_boxes_velocity"].astype(np.float32),
             }
+#         elif res["type"] == 'WaymoDataset' and "gt_boxes" in info:
+#             res["lidar"]["annotations"] = {
+#                 "boxes": info["gt_boxes"].astype(np.float32),
+#                 "names": info["gt_names"],
+#             }
         elif res["type"] == 'WaymoDataset' and "gt_boxes" in info:
             res["lidar"]["annotations"] = {
-                "boxes": info["gt_boxes"].astype(np.float32),
-                "names": info["gt_names"],
+                "boxes": info["gt_boxes_lst"],
+                "names": info["gt_names_lst"]
             }
         else:
             pass 
