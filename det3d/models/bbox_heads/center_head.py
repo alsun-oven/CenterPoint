@@ -247,46 +247,59 @@ class CenterHead(nn.Module):
         y = torch.clamp(x.sigmoid_(), min=1e-4, max=1-1e-4)
         return y
 
-    def loss(self, example, preds_dicts, **kwargs):
+    def loss(self, example_lst, preds_dicts, **kwargs):
         rets = []
-        for task_id, preds_dict in enumerate(preds_dicts):
-            # heatmap focal loss
-            preds_dict['hm'] = self._sigmoid(preds_dict['hm'])
-
-            hm_loss = self.crit(preds_dict['hm'], example['hm'][task_id], example['ind'][task_id], example['mask'][task_id], example['cat'][task_id])
-
-            target_box = example['anno_box'][task_id]
-            # reconstruct the anno_box from multiple reg heads
-            if self.dataset in ['waymo', 'nuscenes']:
-                if 'vel' in preds_dict:
-                    preds_dict['anno_box'] = torch.cat((preds_dict['reg'], preds_dict['height'], preds_dict['dim'],
-                                                        preds_dict['vel'], preds_dict['rot']), dim=1)  
-                else:
-                    preds_dict['anno_box'] = torch.cat((preds_dict['reg'], preds_dict['height'], preds_dict['dim'],
-                                                        preds_dict['rot']), dim=1)   
-                    target_box = target_box[..., [0, 1, 2, 3, 4, 5, -2, -1]] # remove vel target                       
-            else:
-                raise NotImplementedError()
-
-            ret = {}
- 
-            # Regression loss for dimension, offset, height, rotation            
-            box_loss = self.crit_reg(preds_dict['anno_box'], example['mask'][task_id], example['ind'][task_id], target_box)
-
-            loc_loss = (box_loss*box_loss.new_tensor(self.code_weights)).sum()
-
-            loss = hm_loss + self.weight*loc_loss
-
-            ret.update({'loss': loss, 'hm_loss': hm_loss.detach().cpu(), 'loc_loss':loc_loss, 'loc_loss_elem': box_loss.detach().cpu(), 'num_positive': example['mask'][task_id].float().sum()})
-
-            rets.append(ret)
         
-        """convert batch-key to key-batch
-        """
-        rets_merged = defaultdict(list)
-        for ret in rets:
-            for k, v in ret.items():
-                rets_merged[k].append(v)
+        #'hm' 放了很多份  task_id， dict
+        #task_id， dict, sweeps, 
+        
+        #original preds_dicts LIST preds_dict DICT ['hm' 'reg' 'height' 'dim' 'vel' 'rot']
+        #original example DICT ['hm' 'reg' 'height' 'dim' 'vel' 'rot']
+        
+        #now  preds_dicts LIST  preds_dict_lst LIST preds_dict DICT ['hm' 'reg' 'height' 'dim' 'vel' 'rot']
+        #now  example_lst LIST(sweeps)  example(original_example)
+        
+        
+        for task_id, preds_dict_lst in enumerate(preds_dicts):
+            # heatmap focal loss
+            for sweeps_id, preds_dict in enumerate(preds_dict_lst):
+                preds_dict['hm'] = self._sigmoid(preds_dict['hm'])
+                example = example_lst[sweeps_id]
+                
+                hm_loss = self.crit(preds_dict['hm'], example['hm'][task_id], example['ind'][task_id], example['mask'][task_id], example['cat'][task_id])
+
+                target_box = example['anno_box'][task_id]
+                # reconstruct the anno_box from multiple reg heads
+                if self.dataset in ['waymo', 'nuscenes']:
+                    if 'vel' in preds_dict:
+                        preds_dict['anno_box'] = torch.cat((preds_dict['reg'], preds_dict['height'], preds_dict['dim'],
+                                                            preds_dict['vel'], preds_dict['rot']), dim=1)  
+                    else:
+                        preds_dict['anno_box'] = torch.cat((preds_dict['reg'], preds_dict['height'], preds_dict['dim'],
+                                                            preds_dict['rot']), dim=1)   
+                        target_box = target_box[..., [0, 1, 2, 3, 4, 5, -2, -1]] # remove vel target                       
+                else:
+                    raise NotImplementedError()
+
+                ret = {}
+
+                # Regression loss for dimension, offset, height, rotation            
+                box_loss = self.crit_reg(preds_dict['anno_box'], example['mask'][task_id], example['ind'][task_id], target_box)
+
+                loc_loss = (box_loss*box_loss.new_tensor(self.code_weights)).sum()
+
+                loss = hm_loss + self.weight*loc_loss
+
+                ret.update({'loss': loss, 'hm_loss': hm_loss.detach().cpu(), 'loc_loss':loc_loss, 'loc_loss_elem': box_loss.detach().cpu(), 'num_positive': example['mask'][task_id].float().sum()})
+
+                rets.append(ret)
+
+            """convert batch-key to key-batch
+            """
+            rets_merged = defaultdict(list)
+            for ret in rets:
+                for k, v in ret.items():
+                    rets_merged[k].append(v)
 
         return rets_merged
 
