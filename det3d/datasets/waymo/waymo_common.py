@@ -191,11 +191,18 @@ def veh_pos_to_transform(veh_pos):
 def _fill_infos(root_path, frames, split='train', nsweeps=1):
     # load all train infos
     infos = []
-    for frame_name in tqdm(frames):  # global id
-        lidar_path = os.path.join(root_path, split, 'lidar', frame_name)
+    for frame_id, frame_name in tqdm(enumerate(frames)):  # global id
+        
+        
+        lidar_path = os.path.join(root_path, split, 'lidar', frame_name)    
         ref_path = os.path.join(root_path, split, 'annos', frame_name)
+        ref_obj_dict = {}
 
         ref_obj = get_obj(ref_path)
+        
+        ref_obj_dict['ref_obj'] = ref_obj
+        
+        ref_obj_dict['other_obj'] = []
         ref_time = 1e-6 * int(ref_obj['frame_name'].split("_")[-1])
 
         ref_pose = np.reshape(ref_obj['veh_to_global'], [4, 4])
@@ -235,6 +242,8 @@ def _fill_infos(root_path, frames, split='train', nsweeps=1):
                 curr_label_path = os.path.join(root_path, split, 'annos', curr_name)
                 
                 curr_obj = get_obj(curr_label_path)
+                
+                ref_obj_dict['other_obj'].append(curr_obj)
                 curr_pose = np.reshape(curr_obj['veh_to_global'], [4, 4])
                 global_from_car, _ = veh_pos_to_transform(curr_pose) 
                 
@@ -258,23 +267,57 @@ def _fill_infos(root_path, frames, split='train', nsweeps=1):
         if split != 'test':
             # read boxes 
             TYPE_LIST = ['UNKNOWN', 'VEHICLE', 'PEDESTRIAN', 'SIGN', 'CYCLIST']
-            annos = ref_obj['objects']
-            num_points_in_gt = np.array([ann['num_points'] for ann in annos])
-            gt_boxes = np.array([ann['box'] for ann in annos]).reshape(-1, 9)
-            
-            if len(gt_boxes) != 0:
-                # transform from Waymo to KITTI coordinate 
-                # Waymo: x, y, z, length, width, height, rotation from positive x axis clockwisely
-                # KITTI: x, y, z, width, length, height, rotation from negative y axis counterclockwisely 
-                gt_boxes[:, -1] = -np.pi / 2 - gt_boxes[:, -1]
-                gt_boxes[:, [3, 4]] = gt_boxes[:, [4, 3]]
+            for flag_id in range(2):
+                
+                info['gt_boxes'] = {}
+                info['gt_names'] = {}
+                
+                if flag_id == 0:
+                    annos = ref_obj_dict['ref_obj']['objects']
+                    num_points_in_gt = np.array([ann['num_points'] for ann in annos])
+                    gt_boxes = np.array([ann['box'] for ann in annos]).reshape(-1, 9)
 
-            gt_names = np.array([TYPE_LIST[ann['label']] for ann in annos])
-            mask_not_zero = (num_points_in_gt > 0).reshape(-1)    
+                    if len(gt_boxes) != 0:
+                        # transform from Waymo to KITTI coordinate 
+                        # Waymo: x, y, z, length, width, height, rotation from positive x axis clockwisely
+                        # KITTI: x, y, z, width, length, height, rotation from negative y axis counterclockwisely 
+                        gt_boxes[:, -1] = -np.pi / 2 - gt_boxes[:, -1]
+                        gt_boxes[:, [3, 4]] = gt_boxes[:, [4, 3]]
 
-            # filter boxes without lidar points 
-            info['gt_boxes'] = gt_boxes[mask_not_zero, :].astype(np.float32)
-            info['gt_names'] = gt_names[mask_not_zero].astype(str)
+                    gt_names = np.array([TYPE_LIST[ann['label']] for ann in annos])
+                    mask_not_zero = (num_points_in_gt > 0).reshape(-1)    
+
+                    # filter boxes without lidar points 
+                    info['gt_boxes']['current_frame'] = gt_boxes[mask_not_zero, :].astype(np.float32)
+                    info['gt_names']['current_frame'] = gt_names[mask_not_zero].astype(str)
+                    
+                    info['gt_boxes']['other_frame'] =[]
+                    info['gt_names']['other_frame'] = []
+                    
+                else:
+                    
+                    other_obj_lst = ref_obj_dict['other_obj']
+                    
+                    for other_objs in other_obj_lst:
+                    
+                        annos = other_objs['objects']
+                        num_points_in_gt = np.array([ann['num_points'] for ann in annos])
+                        gt_boxes = np.array([ann['box'] for ann in annos]).reshape(-1, 9)
+
+                        if len(gt_boxes) != 0:
+                            # transform from Waymo to KITTI coordinate 
+                            # Waymo: x, y, z, length, width, height, rotation from positive x axis clockwisely
+                            # KITTI: x, y, z, width, length, height, rotation from negative y axis counterclockwisely 
+                            gt_boxes[:, -1] = -np.pi / 2 - gt_boxes[:, -1]
+                            gt_boxes[:, [3, 4]] = gt_boxes[:, [4, 3]]
+
+                        gt_names = np.array([TYPE_LIST[ann['label']] for ann in annos])
+                        mask_not_zero = (num_points_in_gt > 0).reshape(-1)    
+
+                        # filter boxes without lidar points 
+                        info['gt_boxes']['other_frame'].append(gt_boxes[mask_not_zero, :].astype(np.float32))
+                        info['gt_names']['other_frame'].append(gt_names[mask_not_zero].astype(str))
+                    
 
         infos.append(info)
     return infos
