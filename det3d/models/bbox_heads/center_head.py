@@ -234,6 +234,8 @@ class CenterHead(nn.Module):
         logger.info("Finish CenterHead Initialization")
 
     def forward(self, x, *kwargs):
+        
+        # 考虑 sweeps
         ret_dicts = []
 
         x = self.shared_conv(x)
